@@ -64,6 +64,22 @@ It's plain HTML + SVG + JavaScript with **no build step**.
 To add a new collective, write a builder in `src/model.js` that returns the same
 `{ name, numNodes, steps[] }` shape — the renderer needs no changes.
 
+## Visualization conventions
+
+Apply these rules when adding or revising technical visualizations in this
+repository:
+
+- **Always label matrix shapes.** Put a shape hint directly beside every matrix
+  or tensor node. Prefer both the symbolic shape (for example, `m × d`) and the
+  concrete teaching-example shape (for example, `4 × 8`) when space permits.
+- **Design for desktop.** Prioritize the clarity and spatial organization of the
+  desktop visualization. Mobile-specific visualization layouts and responsive
+  optimization are not required.
+- **Keep technical text comfortably readable.** Use at least `12px` for normal
+  labels and explanatory text. Reserve `11px` only for secondary annotations,
+  such as matrix-shape hints; important labels and values should generally be
+  `13–15px` or larger. Never shrink essential text merely to fit more content.
+
 ## Roadmap
 
 - [x] All-Gather

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepSeek-V4 CSA — the whole pipeline</title>
+  <link rel="stylesheet" href="styles.css?v=9" />
+</head>
+<body>
+  <main class="wrap cpipe-page">
+    <header class="masthead cpipe-masthead">
+      <p class="cpipe-kicker">DeepSeek-V4 · Compressed Sparse Attention</p>
+      <h1>Follow one query through the whole CSA pipeline</h1>
+      <p class="sub">
+        Compression shrinks the history. The lightning indexer decides what survives. Shared-KV
+        multi-query attention reads it, then grouped projection turns many head outputs back into one hidden state.
+      </p>
+    </header>
+
+    <section class="cpipe-controls" aria-label="Visual legend">
+      <div class="cpipe-legend" aria-label="Visual legend">
+        <span><i class="cpipe-dot cpipe-dot-history"></i>history</span>
+        <span><i class="cpipe-dot cpipe-dot-query"></i>query</span>
+        <span><i class="cpipe-dot cpipe-dot-selected"></i>selected</span>
+        <span><i class="cpipe-dot cpipe-dot-local"></i>local window</span>
+      </div>
+    </section>
+
+    <section class="cpipe-overview" aria-labelledby="cpipe-overview-title">
+      <h2 id="cpipe-overview-title" class="sr-only">Compressed Sparse Attention pipeline overview</h2>
+      <button class="cpipe-why-trigger cpipe-overview-why" id="cpipe-efficiency-open" type="button" aria-haspopup="dialog">
+        Why this pipeline? <span>Compare 1M tokens →</span>
+      </button>
+      <div class="cpipe-lanes" aria-hidden="true">
+        <span>KV history</span>
+        <span>Query token</span>
+      </div>
+      <div class="cpipe-flow" id="cpipe-flow">
+        <div class="cpipe-source cpipe-source-history" id="cpipe-history-source">
+          <div class="cpipe-mini-tokens" id="cpipe-history-tokens"></div>
+          <span>16 token states</span>
+        </div>
+
+        <button class="cpipe-stage is-active" type="button" data-stage="compress" aria-pressed="true">
+          <span class="cpipe-stage-number">1</span>
+          <span class="cpipe-stage-copy"><b>Compress KV entries</b><small>16 tokens → 4 entries</small></span>
+          <span class="cpipe-stage-glyph cpipe-compress-glyph" aria-hidden="true"><i></i><i></i><i></i><em></em></span>
+        </button>
+
+        <button class="cpipe-stage" type="button" data-stage="index" aria-pressed="false">
+          <span class="cpipe-stage-number">2</span>
+          <span class="cpipe-stage-copy"><b>Lightning indexer</b><small>score history → keep top-2</small></span>
+          <span class="cpipe-stage-glyph cpipe-index-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        </button>
+
+        <button class="cpipe-stage" type="button" data-stage="mqa" aria-pressed="false">
+          <span class="cpipe-stage-number">3</span>
+          <span class="cpipe-stage-copy"><b>Shared-KV MQA</b><small>many queries · one K/V set</small></span>
+          <span class="cpipe-stage-glyph cpipe-mqa-glyph" aria-hidden="true"><i></i><i></i><i></i><em></em></span>
+        </button>
+
+        <button class="cpipe-stage" type="button" data-stage="project" aria-pressed="false">
+          <span class="cpipe-stage-number">4</span>
+          <span class="cpipe-stage-copy"><b>Grouped projection</b><small>8 heads → 2 groups → output</small></span>
+          <span class="cpipe-stage-glyph cpipe-project-glyph" aria-hidden="true"><i></i><i></i><em></em></span>
+        </button>
+
+        <div class="cpipe-output" aria-label="Final attention output">
+          <b>ô<sub>t</sub></b>
+          <span>hidden state</span>
+        </div>
+      </div>
+
+      <div class="cpipe-query-lane" id="cpipe-query-lane">
+        <div class="cpipe-query-token"><b>h<sub id="cpipe-query-sub">15</sub></b><span>query state</span></div>
+        <div class="cpipe-query-split">
+          <span>shared low-rank latent c<sup>Q</sup><sub>t</sub></span>
+          <i aria-hidden="true"></i>
+        </div>
+        <span class="cpipe-query-feed cpipe-query-feed-index">indexer queries</span>
+        <span class="cpipe-query-feed cpipe-query-feed-mqa">attention queries</span>
+      </div>
+    </section>
+
+    <section class="cpipe-detail" aria-live="polite" aria-atomic="false">
+      <header class="cpipe-detail-head">
+        <div>
+          <p id="cpipe-detail-step">STAGE 1 OF 4</p>
+          <h2 id="cpipe-detail-title">Compress KV entries</h2>
+        </div>
+        <p id="cpipe-detail-summary">Every four token positions become one learned, channel-wise summary.</p>
+        <button class="cpipe-why-trigger" id="cpipe-stage-why" type="button" aria-haspopup="dialog">Why this stage? <span>Compare QKV →</span></button>
+      </header>
+      <div id="cpipe-detail-body"></div>
+    </section>
+
+    <footer class="cpipe-foot">
+      <aside class="cpipe-branch-note" aria-label="Why compression uses two branches">
+        <div class="cpipe-branch-note__title">Why two branches?</div>
+        <div>
+          <code>C<sup>Comp</sup><sub>i</sub> = a(block i) + b(block i−1)</code>
+          <p><strong>a</strong> summarizes the current block while <strong>b</strong> carries in the previous block. Their overlap keeps information continuous across block boundaries; they are not separate key and value branches.</p>
+        </div>
+      </aside>
+      <p><strong>Fixed toy setup:</strong> n = 16, d = 8, c = 6, d<sub>c</sub> = 4, c<sub>I</sub> = 4, m = 4, top-k = 2, sliding window = 2 tokens, 4 indexer heads, 8 attention heads, 2 output groups, d<sub>g</sub> = 8.</p>
+      <p>The visual follows DeepSeek-V4 §2.3.1. Values are deterministic teaching data; shapes and data flow follow the paper.</p>
+      <a href="https://arxiv.org/pdf/2606.19348v1" target="_blank" rel="noreferrer">Read Figure 3 and §2.3.1 in the paper ↗</a>
+    </footer>
+  </main>
+
+  <dialog class="cpipe-drawer" id="cpipe-stage-drawer" aria-labelledby="cpipe-stage-drawer-title">
+    <div class="cpipe-drawer-shell">
+      <header class="cpipe-drawer-head">
+        <div><span>STANDARD QKV ↔ DEEPSEEK-V4 CSA</span><h2 id="cpipe-stage-drawer-title">Why this stage?</h2></div>
+        <button type="button" class="cpipe-drawer-close" data-close-drawer aria-label="Close comparison panel">×</button>
+      </header>
+      <div class="cpipe-drawer-body" id="cpipe-stage-drawer-body"></div>
+    </div>
+  </dialog>
+
+  <dialog class="cpipe-drawer cpipe-efficiency-drawer" id="cpipe-efficiency-drawer" aria-labelledby="cpipe-efficiency-title">
+    <div class="cpipe-drawer-shell">
+      <header class="cpipe-drawer-head">
+        <div><span>ONE QUERY AT A 1M-TOKEN CONTEXT</span><h2 id="cpipe-efficiency-title">Where the savings come from</h2></div>
+        <button type="button" class="cpipe-drawer-close" data-close-drawer aria-label="Close efficiency panel">×</button>
+      </header>
+      <div class="cpipe-drawer-body">
+        <p class="cpipe-drawer-lead">DeepSeek reports two different baselines. KV memory is compared with a common <strong>BF16 GQA8, head-dimension 128</strong> configuration; total single-token FLOPs are compared with <strong>DeepSeek-V3.2</strong>. Keeping them separate avoids pretending V3.2 is vanilla QKV.</p>
+
+        <section class="cpipe-eff-section" aria-labelledby="cpipe-memory-chart-title">
+          <div class="cpipe-eff-title"><span>KV CACHE · REPORTED AT 1M</span><h3 id="cpipe-memory-chart-title">About 50× smaller than common BF16 GQA8</h3></div>
+          <div class="cpipe-eff-bars" role="img" aria-label="Relative KV cache: common BF16 GQA8 baseline 100 percent, DeepSeek-V4 approximately 2 percent">
+            <div class="cpipe-eff-row"><span>BF16 GQA8 baseline</span><i><b style="--bar:100%"></b></i><strong>100%</strong></div>
+            <div class="cpipe-eff-row is-v4"><span>DeepSeek-V4</span><i><b style="--bar:2%"></b></i><strong>≈2%</strong></div>
+          </div>
+          <p>GQA8 already shares each KV head across eight query heads. A vanilla multi-head QKV cache would be larger still.</p>
+        </section>
+
+        <section class="cpipe-eff-section" aria-labelledby="cpipe-flops-chart-title">
+          <div class="cpipe-eff-title"><span>TOTAL SINGLE-TOKEN FLOPs · REPORTED AT 1M</span><h3 id="cpipe-flops-chart-title">V4-Pro uses 27% of V3.2; Flash uses 10%</h3></div>
+          <div class="cpipe-eff-bars" role="img" aria-label="Relative single-token FLOPs: DeepSeek-V3.2 100 percent, V4-Pro 27 percent, V4-Flash 10 percent">
+            <div class="cpipe-eff-row"><span>DeepSeek-V3.2</span><i><b style="--bar:100%"></b></i><strong>100%</strong></div>
+            <div class="cpipe-eff-row is-v4"><span>V4-Pro</span><i><b style="--bar:27%"></b></i><strong>27%</strong></div>
+            <div class="cpipe-eff-row is-flash"><span>V4-Flash</span><i><b style="--bar:10%"></b></i><strong>10%</strong></div>
+          </div>
+          <p>The paper does not publish a total-FLOP percentage against vanilla dense QKV, so this chart uses its stated V3.2 baseline.</p>
+        </section>
+
+        <section class="cpipe-eff-section" aria-labelledby="cpipe-work-title">
+          <div class="cpipe-eff-title"><span>WHAT ONE CSA LAYER TOUCHES</span><h3 id="cpipe-work-title">1,000,000 dense rows become a cheap scan plus a tiny core set</h3></div>
+          <div class="cpipe-work-compare">
+            <div><b>Dense QKV attention</b><strong>1,000,000</strong><span>full-width KV rows scored and read by every query</span></div>
+            <i aria-hidden="true">→</i>
+            <div class="is-v4"><b>Lightning indexer</b><strong>≈250,000</strong><span>compressed c<sub>I</sub>-wide keys scanned in FP4 (m = 4)</span></div>
+            <i aria-hidden="true">→</i>
+            <div class="is-v4"><b>Core MQA</b><strong>1,152</strong><span>top-1024 compressed entries + 128 exact local entries</span></div>
+          </div>
+          <p>This is the published CSA-layer configuration. DeepSeek-V4 interleaves CSA with HCA layers, so the model-level charts above include both attention types.</p>
+        </section>
+
+        <section class="cpipe-eff-section cpipe-savings-stack" aria-label="Sources of efficiency">
+          <div><span>1</span><b>Sequence compression</b><small>n historical rows → n/m joint KV entries</small></div>
+          <div><span>2</span><b>Sparse selection</b><small>full-width attention reads only top-k + local</small></div>
+          <div><span>3</span><b>Shared K = V</b><small>one memory table serves every query head</small></div>
+          <div><span>4</span><b>Grouped output</b><small>contract groups before the final d-wide mix</small></div>
+          <div><span>5</span><b>Lower precision</b><small>FP4 indexer; FP8/BF16 mixed KV storage</small></div>
+        </section>
+
+        <p class="cpipe-drawer-source">Sources: <a href="https://arxiv.org/pdf/2606.19348v1" target="_blank" rel="noreferrer">DeepSeek-V4 §2.3.4 and Figure 1 ↗</a> · <a href="https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro/blob/main/inference/config.json" target="_blank" rel="noreferrer">published V4-Pro configuration ↗</a></p>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="src/csa-pipeline.js?v=4"></script>
+</body>
+</html>
